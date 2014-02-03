@@ -423,9 +423,19 @@ int red_energy = 256;
 int green_energy = 150;
 int blue_energy = 0;
 
+
+// lamp mode params
+
 byte lamp_red = 220;
 byte lamp_green = 220;
 byte lamp_blue = 200;
+
+
+// cheerlight params
+
+uint8_t cheer_brightness = 100; // initial brightness
+uint8_t cheer_fade_cycles = 30; // fade cheer color one brightness step every 30 cycles
+
 
 
 // Cloud API
@@ -453,6 +463,11 @@ int handleParams(String command)
       brightness = val;
     else if (key=="fade_base")
       fade_base = val;
+    // cheerlight params
+    else if (key=="cheer_brightness")
+      cheer_brightness = val;
+    else if (key=="cheer_fade_cycles")
+      cheer_fade_cycles = val;
     // lamp params
     else if (key=="lamp_red")
       lamp_red = val;
@@ -860,6 +875,129 @@ void injectRandom()
 }
 
 
+// Cheerlights interface
+// =====================
+// see cheerlights.com
+// Code partly from https://github.com/ls6/spark-core-cheerlights licensed under MIT license
+
+TCPClient cheerLightsAPI;
+String responseLine;
+unsigned long nextPoll = 0;
+uint8_t cheer_red = 0;
+uint8_t cheer_green = 0;
+uint8_t cheer_blue = 0;
+uint8_t cheer_bright = 0;
+uint8_t cheer_fade_cnt = 0;
+
+
+void processCheerColor(String colorName)
+{
+  uint8_t red, green, blue;
+
+  if (colorName == "purple") {
+    red = 128; green = 0; blue = 128;
+  } else if (colorName == "red") {
+    red = 255; green = 0; blue = 0;
+  } else if (colorName == "green") {
+    red = 0; green = 255; blue = 0;
+  } else if (colorName == "blue") {
+    red = 0; green = 0; blue = 255;
+  } else if (colorName == "cyan") {
+    red = 0; green = 255; blue = 255;
+  } else if (colorName == "white") {
+    red = 255; green = 255; blue = 255;
+  } else if (colorName == "warmwhite") {
+    red = 253; green = 245; blue = 230;
+  } else if (colorName == "magenta") {
+    red = 255; green = 0; blue = 255;
+  } else if (colorName == "yellow") {
+    red = 255; green = 255; blue = 0;
+  } else if (colorName == "orange") {
+    red = 255; green = 165; blue = 0;
+  } else if (colorName == "pink") {
+    red = 255; green = 192; blue = 203;
+  } else if (colorName == "oldlace") {
+    red = 253; green = 245; blue = 230;
+  }
+  else {
+    // unknown color, do nothing
+  }
+  // check if cheer color is different
+  if (red!=cheer_red || green!=cheer_green || blue!=cheer_blue) {
+    // initiate new cheer colored background sequence
+    cheer_red = red;
+    cheer_green = green;
+    cheer_blue = blue;
+    cheer_bright = cheer_brightness; // start with configured brightness
+    cheer_fade_cnt = 0;
+  }
+}
+
+
+void updateBackgroundWithCheerColor()
+{
+  if (cheer_bright>0) {
+    red_bg = ((int)cheer_red*cheer_bright)>>8;
+    green_bg = ((int)cheer_green*cheer_bright)>>8;
+    blue_bg = ((int)cheer_blue*cheer_bright)>>8;
+    // check fading
+    cheer_fade_cnt++;
+    if (cheer_fade_cnt>=cheer_fade_cycles) {
+      cheer_fade_cnt = 0;
+      cheer_bright--;
+      // if we reached 0 now, turn off background now
+      if (cheer_bright==0) {
+        red_bg = 0;
+        green_bg = 0;
+        blue_bg = 0;
+      }
+    }
+  }
+}
+
+
+void checkCheerlights()
+{
+  if (cheer_brightness>0) {
+    // only poll if displaye is enabled (not zero brightness)
+    if (nextPoll<=millis()) {
+      nextPoll = millis()+60000;
+      // in case previous request wasn't answered, close connection
+      cheerLightsAPI.stop();
+      // issue a new request
+      if (cheerLightsAPI.connect("api.thingspeak.com", 80)) {
+        cheerLightsAPI.println("GET /channels/1417/field/1/last.txt HTTP/1.0");
+        cheerLightsAPI.println();
+      }
+      responseLine = "";
+    }
+    if (cheerLightsAPI.available()) {
+      char ch = cheerLightsAPI.read();
+      responseLine += ch;
+      // check for end of line (LF)
+      if (ch==0x0A) {
+        if (responseLine.length() == 2) {
+          // empty line (CRLF only)
+          // now response body (color) follows
+          String colorName = "";
+          while (cheerLightsAPI.available()) {
+            ch = cheerLightsAPI.read();
+            colorName += ch;
+          };
+          processCheerColor(colorName);
+          cheerLightsAPI.stop();
+        };
+        responseLine = ""; // next line
+      }
+    }
+  }
+}
+
+
+
+// Main program
+// ============
+
 void setup()
 {
   resetEnergy();
@@ -877,15 +1015,21 @@ byte cnt = 0;
 
 void loop()
 {
+  // check cheerlights
+  checkCheerlights();
+  updateBackgroundWithCheerColor();
+  // render the text
   renderText();
   switch (mode) {
     case mode_off: {
+      // off
       for(int i=0; i<leds.getNumLeds(); i++) {
         leds.setColor(i, 0, 0, 0);
       }
       break;
     }
     case mode_lamp: {
+      // just single color lamp + text display
       for(int i=0; i<leds.getNumLeds(); i++) {
         if (textLayer[i]>0) {
           leds.setColorDimmed(i, red_text, green_text, blue_text, (textLayer[i]*brightness)>>8);
@@ -897,12 +1041,14 @@ void loop()
       break;
     }
     case mode_torch: {
+      // torch animation + text display + cheerlight background
       injectRandom();
       calcNextEnergy();
       calcNextColors();
       break;
     }
     case mode_colorcycle: {
+      // simple color wheel animation
       cnt++;
       byte r,g,b;
       for(int i=0; i<leds.getNumLeds(); i++) {
@@ -917,6 +1063,8 @@ void loop()
       break;
     }
   }
+  // transmit colors to the leds
   leds.show();
+  // wait
   delay(cycle_wait); // latch & reset needs 50 microseconds pause, at least.
 }
