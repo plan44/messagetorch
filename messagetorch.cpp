@@ -471,10 +471,10 @@ int handleParams(String command)
     // lamp params
     else if (key=="lamp_red")
       lamp_red = val;
-    else if (key=="lamp_red")
-      lamp_red = val;
-    else if (key=="lamp_red")
-      lamp_red = val;
+    else if (key=="lamp_green")
+      lamp_green = val;
+    else if (key=="lamp_blue")
+      lamp_blue = val;
     // text color params
     else if (key=="red_text")
       red_text = val;
