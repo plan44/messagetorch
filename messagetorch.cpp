@@ -363,7 +363,8 @@ static const uint8_t fontBytes[numGlyphs*bytesPerGlyph] = {
 
 
 const uint16_t ledsPerLevel = 13; // approx
-const uint16_t levels = 18; // approx
+//const uint16_t levels = 18; // approx
+const uint16_t levels = 10; // Hot fix: had to reduce number of LEDs because new spark.core FW has less RAM free for user's app, otherwise crashes.
 
 const uint16_t numLeds = ledsPerLevel*levels; // total number of LEDs
 
