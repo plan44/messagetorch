@@ -367,7 +367,7 @@ const uint16_t levels = 7; // reduced due to low memory on newer spark firmwares
 
 const uint16_t numLeds = ledsPerLevel*levels; // total number of LEDs
 
-p44_ws2812 leds(numLeds); // for 4m strip with 240 LEDs
+p44_ws2812 leds(numLeds); // create WS2812 driver
 
 // global parameters
 
@@ -388,8 +388,7 @@ int text_intensity = 255; // intensity of last column of text (where text appear
 int cycles_per_px = 5;
 int text_repeats = 15; // text displays until faded down to almost zero
 int fade_per_repeat = 15; // how much to fade down per repeat
-int text_base_line = 8;
-int raise_text_by = 0; // how many rows to raise text from start to end of display
+int text_base_line = 7;
 byte red_text = 0;
 byte green_text = 255;
 byte blue_text = 180;
@@ -468,7 +467,7 @@ int handleParams(String command)
       cheer_brightness = val;
     else if (key=="cheer_fade_cycles")
       cheer_fade_cycles = val;
-    // lamp params
+    // simple lamp params
     else if (key=="lamp_red")
       lamp_red = val;
     else if (key=="lamp_green")
@@ -489,8 +488,6 @@ int handleParams(String command)
       text_repeats = val;
     else if (key=="text_base_line")
       text_base_line = val;
-    else if (key=="raise_text_by")
-      raise_text_by = val;
     else if (key=="fade_per_repeat")
       fade_per_repeat = val;
     else if (key=="text_intensity")
@@ -598,7 +595,8 @@ int handleVdsd(String command)
 // text layer
 // ==========
 
-byte textLayer[numLeds]; // text layer
+// text layer, but only one strip around the tube (ledsPerLevel) with the height of the characters (rowsPerGlyph)
+byte textLayer[ledsPerLevel*rowsPerGlyph];
 String text;
 
 int textPixelOffset;
@@ -703,22 +701,17 @@ void renderText()
         }
       }
     }
-    // calc base line
-    int baseLine = text_base_line + textPixelOffset*raise_text_by/totalTextPixels;
     // now render columns
-    for (int y=0; y<levels; y++) {
-      int i = y*ledsPerLevel + x; // LED index
-      if (y>=baseLine) {
-        int glyphRow = y-baseLine;
-        if (glyphRow < rowsPerGlyph) {
-          if (column & (0x40>>glyphRow)) {
-            textLayer[i] = thisBright;
-            // also adjust pixel left to this one
-            if (x>0) {
-              increase(textLayer[i-1], nextBright, maxBright);
-            }
-            continue;
+    for (int glyphRow=0; glyphRow<rowsPerGlyph; glyphRow++) {
+      int i = glyphRow*ledsPerLevel + x; // LED index
+      if (glyphRow < rowsPerGlyph) {
+        if (column & (0x40>>glyphRow)) {
+          textLayer[i] = thisBright;
+          // also adjust pixel left to this one
+          if (x>0) {
+            increase(textLayer[i-1], nextBright, maxBright);
           }
+          continue;
         }
       }
       textLayer[i] = 0; // no text
@@ -827,9 +820,11 @@ const uint8_t energymap[32] = {0, 64, 96, 112, 128, 144, 152, 160, 168, 176, 184
 
 void calcNextColors()
 {
+  int textStart = text_base_line*ledsPerLevel;
+  int textEnd = textStart+rowsPerGlyph*ledsPerLevel;
   for (int i=0; i<numLeds; i++) {
-    if (textLayer[i]>0) {
-      // text is overlaid in light green-blue
+    if (i>=textStart && i<textEnd && textLayer[i-textStart]>0) {
+      // overlay with text color
       leds.setColorDimmed(i, red_text, green_text, blue_text, (brightness*textLayer[i])>>8);
     }
     else {
