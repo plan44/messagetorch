@@ -15,9 +15,14 @@
 
 class p44_ws2812 {
 
+  typedef struct {
+    unsigned int red:5;
+    unsigned int green:5;
+    unsigned int blue:5;
+  } RGBPixel;
+
   uint16_t numLeds; // number of LEDs
-  size_t bufferSize; // number of bytes in the buffer
-  byte *msgBufferP; // the message buffer
+  RGBPixel *pixelBufferP; // the pixel buffer
 
 public:
   /// create driver for a WS2812 LED chain
@@ -41,13 +46,6 @@ public:
   /// @param aBlue intensity of blue component, 0..255
   void setColor(uint16_t aLedNumber, byte aRed, byte aGreen, byte aBlue);
 
-  /// set color of one LED, scaled by a factor
-  /// @param aRed intensity of red component, 0..255
-  /// @param aGreen intensity of green component, 0..255
-  /// @param aBlue intensity of blue component, 0..255
-  /// @param aScaling scaling factor for RGB (PWM duty cycle), 0..255
-  void setColorScaled(uint16_t aLedNumber, byte aRed, byte aGreen, byte aBlue, byte aScaling);
-
   /// set color of one LED, scaled by a visible brightness (non-linear) factor
   /// @param aRed intensity of red component, 0..255
   /// @param aGreen intensity of green component, 0..255
@@ -57,10 +55,10 @@ public:
 
   /// get current color of LED
   /// @param aRed set to intensity of red component, 0..255
-  /// @param aGreen set to iintensity of green component, 0..255
-  /// @param aBlue set to iintensity of blue component, 0..255
-  /// @note for LEDs set with setColorDimmed()/setColorScaled(), this returns the scaled down RGB values,
-  ///   not the original r,g,b parameters
+  /// @param aGreen set to intensity of green component, 0..255
+  /// @param aBlue set to intensity of blue component, 0..255
+  /// @note for LEDs set with setColorDimmed(), this returns the scaled down RGB values,
+  ///   not the original r,g,b parameters. Note also that internal brightness resolution is 5 bits only.
   void getColor(uint16_t aLedNumber, byte &aRed, byte &aGreen, byte &aBlue);
 
   /// @return number of LEDs
@@ -73,20 +71,21 @@ public:
 // Implementation (would go to .cpp file once library is separated)
 // ================================================================
 
+static const uint8_t pwmTable[32] = {0, 1, 1, 2, 3, 4, 6, 7, 9, 10, 13, 15, 18, 21, 24, 28, 33, 38, 44, 50, 58, 67, 77, 88, 101, 115, 132, 150, 172, 196, 224, 255};
+
 p44_ws2812::p44_ws2812(uint16_t aNumLeds)
 {
   numLeds = aNumLeds;
   // allocate the buffer
-  bufferSize = numLeds*3;
-  if((msgBufferP = new byte[bufferSize])!=NULL) {
-    memset(msgBufferP, 0, bufferSize); // all LEDs off
+  if((pixelBufferP = new RGBPixel[numLeds])!=NULL) {
+    memset(pixelBufferP, 0, sizeof(RGBPixel)*numLeds); // all LEDs off
   }
 }
 
 p44_ws2812::~p44_ws2812()
 {
   // free the buffer
-  if (msgBufferP) delete msgBufferP;
+  if (pixelBufferP) delete pixelBufferP;
 }
 
 
@@ -112,8 +111,24 @@ void p44_ws2812::show()
   // Thus, until we can send via DMA, we need to disable IRQs while sending
   __disable_irq();
   // transfer RGB values to LED chain
-  for (uint16_t i=0; i<bufferSize; i++) {
-    byte b = msgBufferP[i];
+  for (uint16_t i=0; i<numLeds; i++) {
+    RGBPixel *pixP = &(pixelBufferP[i]);
+    byte b;
+    // Order of PWM data for WS2812 LEDs is G-R-B
+    // - green
+    b = pwmTable[pixP->green];
+    for (byte j=0; j<8; j++) {
+      SPI.transfer(b & 0x80 ? 0x7E : 0x70);
+      b = b << 1;
+    }
+    // - red
+    b = pwmTable[pixP->red];
+    for (byte j=0; j<8; j++) {
+      SPI.transfer(b & 0x80 ? 0x7E : 0x70);
+      b = b << 1;
+    }
+    // - blue
+    b = pwmTable[pixP->blue];
     for (byte j=0; j<8; j++) {
       SPI.transfer(b & 0x80 ? 0x7E : 0x70);
       b = b << 1;
@@ -126,33 +141,17 @@ void p44_ws2812::show()
 void p44_ws2812::setColor(uint16_t aLedNumber, byte aRed, byte aGreen, byte aBlue)
 {
   if (aLedNumber>=numLeds) return; // invalid LED number
-  byte *msgP = msgBufferP+aLedNumber*3;
-  // order in message is G-R-B for each LED
-  *msgP++ = aGreen;
-  *msgP++ = aRed;
-  *msgP++ = aBlue;
+  RGBPixel *pixP = &(pixelBufferP[aLedNumber]);
+  // linear brightness is stored with 5bit precision only
+  pixP->red = aRed>>3;
+  pixP->green = aGreen>>3;
+  pixP->blue = aBlue>>3;
 }
-
-
-void p44_ws2812::setColorScaled(uint16_t aLedNumber, byte aRed, byte aGreen, byte aBlue, byte aScaling)
-{
-  // scale RGB with a common brightness parameter
-  setColor(aLedNumber, (aRed*aScaling)>>8, (aGreen*aScaling)>>8, (aBlue*aScaling)>>8);
-}
-
-
-
-byte brightnessToPWM(byte aBrightness)
-{
-  static const byte pwmLevels[16] = { 0, 1, 2, 3, 4, 6, 8, 12, 23, 36, 48, 70, 95, 135, 190, 255 };
-  return pwmLevels[aBrightness>>4];
-}
-
 
 
 void p44_ws2812::setColorDimmed(uint16_t aLedNumber, byte aRed, byte aGreen, byte aBlue, byte aBrightness)
 {
-  setColorScaled(aLedNumber, aRed, aGreen, aBlue, brightnessToPWM(aBrightness));
+  setColor(aLedNumber, (aRed*aBrightness)>>8, (aGreen*aBrightness)>>8, (aBlue*aBrightness)>>8);
 }
 
 
@@ -160,11 +159,11 @@ void p44_ws2812::setColorDimmed(uint16_t aLedNumber, byte aRed, byte aGreen, byt
 void p44_ws2812::getColor(uint16_t aLedNumber, byte &aRed, byte &aGreen, byte &aBlue)
 {
   if (aLedNumber>=numLeds) return; // invalid LED number
-  byte *msgP = msgBufferP+aLedNumber*3;
-  // order in message is G-R-B for each LED
-  aGreen = *msgP;
-  aRed = *msgP;
-  aBlue = *msgP;
+  RGBPixel *pixP = &(pixelBufferP[aLedNumber]);
+  // linear brightness is stored with 5bit precision only
+  aRed = pixP->red<<3;
+  aGreen = pixP->green<<3;
+  aBlue = pixP->blue<<3;
 }
 
 
@@ -364,7 +363,7 @@ static const uint8_t fontBytes[numGlyphs*bytesPerGlyph] = {
 
 const uint16_t ledsPerLevel = 13; // approx
 //const uint16_t levels = 18; // approx
-const uint16_t levels = 10; // Hot fix: had to reduce number of LEDs because new spark.core FW has less RAM free for user's app, otherwise crashes.
+const uint16_t levels = 7; // reduced due to low memory on newer spark firmwares
 
 const uint16_t numLeds = ledsPerLevel*levels; // total number of LEDs
 
