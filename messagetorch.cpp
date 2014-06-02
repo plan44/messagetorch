@@ -19,7 +19,7 @@ class p44_ws2812 {
     unsigned int red:5;
     unsigned int green:5;
     unsigned int blue:5;
-  } RGBPixel;
+  } __attribute((packed)) RGBPixel;
 
   uint16_t numLeds; // number of LEDs
   RGBPixel *pixelBufferP; // the pixel buffer
@@ -406,11 +406,11 @@ byte random_spark_probability = 2; // 0..100
 byte spark_min = 200; // 0..255
 byte spark_max = 255; // 0..255
 
-byte spark_tfr = 50; // 0..256 how much energy is transferred up for a spark per cycle
+byte spark_tfr = 40; // 0..256 how much energy is transferred up for a spark per cycle
 uint16_t spark_cap = 200; // 0..255: spark cells: how much energy is retained from previous cycle
 
 uint16_t up_rad = 40; // up radiation
-uint16_t side_rad = 30; // sidewards radiation
+uint16_t side_rad = 35; // sidewards radiation
 uint16_t heat_cap = 0; // 0..255: passive cells: how much energy is retained from previous cycle
 
 byte red_bg = 0;
@@ -419,8 +419,8 @@ byte blue_bg = 0;
 byte red_bias = 5;
 byte green_bias = 0;
 byte blue_bias = 0;
-int red_energy = 256;
-int green_energy = 150;
+int red_energy = 180;
+int green_energy = 145;
 int blue_energy = 0;
 
 
@@ -823,6 +823,7 @@ void calcNextEnergy()
 }
 
 
+const uint8_t energymap[32] = {0, 64, 96, 112, 128, 144, 152, 160, 168, 176, 184, 184, 192, 200, 200, 208, 208, 216, 216, 224, 224, 224, 232, 232, 232, 240, 240, 240, 240, 248, 248, 248};
 
 void calcNextColors()
 {
@@ -835,17 +836,18 @@ void calcNextColors()
       uint16_t e = nextEnergy[i];
       currentEnergy[i] = e;
   //    leds.setColorDimmed(i, 255, 170, 0, e);
-      if (e>230)
+      if (e>250)
         leds.setColorDimmed(i, 170, 170, e, brightness);
       else {
-        //leds.setColor(i, e, (340*e)>>9, 0);
         if (e>0) {
+          // energy to brightness is non-linear
+          byte eb = energymap[e>>3];
           byte r = red_bias;
           byte g = green_bias;
           byte b = blue_bias;
-          increase(r, (e*red_energy)>>8);
-          increase(g, (e*green_energy)>>8);
-          increase(b, (e*blue_energy)>>8);
+          increase(r, (eb*red_energy)>>8);
+          increase(g, (eb*green_energy)>>8);
+          increase(b, (eb*blue_energy)>>8);
           leds.setColorDimmed(i, r, g, b, brightness);
         }
         else {
