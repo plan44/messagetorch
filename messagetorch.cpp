@@ -363,7 +363,7 @@ static const uint8_t fontBytes[numGlyphs*bytesPerGlyph] = {
 
 const uint16_t ledsPerLevel = 13; // approx
 //const uint16_t levels = 18; // approx
-const uint16_t levels = 7; // reduced due to low memory on newer spark firmwares
+const uint16_t levels = 11; // reduced due to low memory on newer spark firmwares
 
 const uint16_t numLeds = ledsPerLevel*levels; // total number of LEDs
 
@@ -388,7 +388,7 @@ int text_intensity = 255; // intensity of last column of text (where text appear
 int cycles_per_px = 5;
 int text_repeats = 15; // text displays until faded down to almost zero
 int fade_per_repeat = 15; // how much to fade down per repeat
-int text_base_line = 7;
+int text_base_line = 4;
 byte red_text = 0;
 byte green_text = 255;
 byte blue_text = 180;
@@ -596,7 +596,8 @@ int handleVdsd(String command)
 // ==========
 
 // text layer, but only one strip around the tube (ledsPerLevel) with the height of the characters (rowsPerGlyph)
-byte textLayer[ledsPerLevel*rowsPerGlyph];
+const int textPixels = ledsPerLevel*rowsPerGlyph;
+byte textLayer[textPixels];
 String text;
 
 int textPixelOffset;
@@ -654,7 +655,7 @@ int newMessage(String aText)
 
 void resetText()
 {
-  for(int i=0; i<numLeds; i++) {
+  for(int i=0; i<textPixels; i++) {
     textLayer[i] = 0;
   }
 }
@@ -825,7 +826,7 @@ void calcNextColors()
   for (int i=0; i<numLeds; i++) {
     if (i>=textStart && i<textEnd && textLayer[i-textStart]>0) {
       // overlay with text color
-      leds.setColorDimmed(i, red_text, green_text, blue_text, (brightness*textLayer[i])>>8);
+      leds.setColorDimmed(i, red_text, green_text, blue_text, (brightness*textLayer[i-textStart])>>8);
     }
     else {
       uint16_t e = nextEnergy[i];
@@ -1017,6 +1018,8 @@ void loop()
   updateBackgroundWithCheerColor();
   // render the text
   renderText();
+  int textStart = text_base_line*ledsPerLevel;
+  int textEnd = textStart+rowsPerGlyph*ledsPerLevel;
   switch (mode) {
     case mode_off: {
       // off
@@ -1027,9 +1030,9 @@ void loop()
     }
     case mode_lamp: {
       // just single color lamp + text display
-      for(int i=0; i<leds.getNumLeds(); i++) {
-        if (textLayer[i]>0) {
-          leds.setColorDimmed(i, red_text, green_text, blue_text, (textLayer[i]*brightness)>>8);
+      for (int i=0; i<leds.getNumLeds(); i++) {
+        if (i>=textStart && i<textEnd && textLayer[i-textStart]>0) {
+          leds.setColorDimmed(i, red_text, green_text, blue_text, (textLayer[i-textStart]*brightness)>>8);
         }
         else {
           leds.setColorDimmed(i, lamp_red, lamp_green, lamp_blue, brightness);
@@ -1050,8 +1053,8 @@ void loop()
       byte r,g,b;
       for(int i=0; i<leds.getNumLeds(); i++) {
         wheel(((i * 256 / leds.getNumLeds()) + cnt) & 255, r, g, b);
-        if (textLayer[i]>0) {
-          leds.setColorDimmed(i, r, g, b, (textLayer[i]*brightness)>>8);
+        if (i>=textStart && i<textEnd && textLayer[i-textStart]>0) {
+          leds.setColorDimmed(i, r, g, b, (textLayer[i-textStart]*brightness)>>8);
         }
         else {
           leds.setColorDimmed(i, r, g, b, brightness>>1); // only half brightness for full area color
