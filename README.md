@@ -1,6 +1,8 @@
 MessageTorch
 ============
 
+2014-06-04: Optimized to work again with 18*13 LEDs even with reduced RAM available on newer spark FW (v0.2.2)!
+
 [![Flattr this git repo](http://api.flattr.com/button/flattr-badge-large.png)](https://flattr.com/submit/auto?user_id=luz&url=https://github.com/plan44/messagetorch&title=MessageTorch&language=&tags=github&category=software)
 
 **A small fun project using a WS2812 color LED strip and a spark.io core WiFi+Cloud enabled prototyping board.**
@@ -67,7 +69,8 @@ So of course I also wanted the MessageTorch to be part of that, and that's what 
 
 Adapting to your LED chain and tube diameter
 --------------------------------------------
-There are two constants in the source around line 365, "ledsPerLevel" and "levels". "ledsPerLevel" must be set to the number of LEDs in one winding of the LED chain around (or in my case, inside the plexiglass) tube. "levels" must be the number of windings. Of course "ledsPerLevel" times "levels" must not exceed the total number of LEDs in the chain.
+There are two constants in the source ~~around line 365~~ at the very top of the file, "ledsPerLevel" and "levels". "ledsPerLevel" must be set to the number of LEDs in one winding of the LED chain around (or in my case, inside the plexiglass) tube. "levels" must be the number of windings. Of course "ledsPerLevel" times "levels" must not exceed the total number of LEDs in the chain.
+(Also, see comments at the top of the file regarding tight memory conditions on newer Spark Core firmware versions)
  
 
 
