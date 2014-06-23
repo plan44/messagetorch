@@ -3,23 +3,23 @@
 
 // Note: total number of LEDs determines amount of RAM needed. Unfortunately, with every Spark core FW update,
 //       the amout of RAM consumed by the Spark FW itself grew and less RAM was available to the app.
-//       So while the app ran fine with 240 LEDs on early spark FW, with current v0.2.2 everything above ~120
+//       So while the app ran fine with 240 LEDs on early spark FW, with v0.2.2 everything above ~120
 //       caused the app to crash (red or magenta flash of death) due to exhausted RAM.
 //       Users disabled Cheerlights and Digitalstrom to get more RAM, but full 240 LEDs were still not
 //       possible any more.
 //
 //       Hopefully, Spark will optimize their FW over time (they plan to, see forum) to make more RAM available
-//       to apps like this one.
+//       to apps like this one. As it seems, current v0.2.3 already has more RAM free than v0.2.2 had. Great! :-)
 //
-//       In the meantime, we have to live with very tight RAM, so I tried to squeeze bits out of the code
+//       Still, we have to live with tight RAM, so I tried to squeeze bits out of the code
 //       (mainly by storing 3*5 = 15 bits for RGB linear brightness rather than 24 bits for RGB PWM duty cycle).
 //       I also added the NO_CHEERLIGHT and NO_DIGITALSTROM conditionals to facilitate leaving these extras off
 //       and save space.
 //
-//       So now, with both NO_CHEERLIGHT and NO_DIGITALSTROM defined to 1, the MessageTorch works again with
-//       18*13 = 234 active LEDs on current v0.2.2 firmware.
+//       By now, with NO_CHEERLIGHT defined to 1 (but NO_DIGITALSTROM left undefined), the MessageTorch works again with
+//       18*13 = 234 active LEDs on current v0.2.3 firmware.
 //
-//       If future firmware should again reduce RAM, try reducing the number of LEDs by making
+//       If you still run into red-flash-of-death issues, try reducing the number of LEDs by making
 //       levels or ledsPerLevel smaller.
 
 // Number of LEDs around the tube. One too much looks better (italic text look)
@@ -35,7 +35,7 @@ const uint16_t levels = 18;
 #define NO_CHEERLIGHT 1
 
 // define this to 1 to disable digitalSTROM part of the code (to save memory)
-#define NO_DIGITALSTROM 1
+//#define NO_DIGITALSTROM 1
 
 
 /*
@@ -583,7 +583,7 @@ int handleParams(String command)
 
 #if !NO_DIGITALSTROM
 
-const int VDSD_API_VERSION=1;
+const int VDSD_API_VERSION=2;
 
 // this function automagically gets called upon a matching POST request
 int handleVdsd(String command)
@@ -604,10 +604,10 @@ int handleVdsd(String command)
     return VDSD_API_VERSION;
   }
   else if (cmd=="config") {
-    // 0xssiibboo, ss=# of sensors, ii=# of binary inputs, bb=# of buttons, oo=# of outputs
-    return 0x00000001; // single output
+    // 0xssiibboo, ss=# of sensors, ii=# of binary inputs, bb=# of buttons, oo=# output type (0=none, 1=on/off, 2=RGB)
+    return 0x00000002; // RGB output
   }
-  else if (cmd=="output0") {
+  else if (cmd=="brightness") {
     // primary output is brightness
     if (hasValue) {
       brightness = value.toInt();
@@ -616,17 +616,39 @@ int handleVdsd(String command)
       return brightness;
     }
   }
-  else if (cmd=="state0") {
-    // state is brightness + mode for now: 0xrrrrmmbb, rrrr=reserved, mm=mode, bb=brightness
+  else if (cmd=="state") {
+    // state is: 0xmmrrggbb, where mm=mode, rr/gg/bb = RGB for RGB modes or bb=brightness for non-RBG
     if (hasValue) {
       uint32_t v = value.toInt();
-      brightness = v & 0xFF;
-      mode = (v>>8) & 0xFF;
+      // get mode
+      mode = (v>>24) & 0xFF;
+      if (mode==mode_lamp) {
+        // RGB Lamp
+        lamp_red = (v>>16) & 0xFF;
+        lamp_green = (v>>8) & 0xFF;
+        lamp_blue = v & 0xFF;
+        brightness = 0xFF;
+      }
+      else {
+        // colored modes, only set overall brightness
+        brightness = v & 0xFF;
+      }
     }
     else {
-      return
-        (brightness & 0xFF) |
-        (mode & 0xFF)<<8;
+      if (mode==mode_lamp) {
+        // RGB Lamp
+        return
+          (mode<<24) |
+          (lamp_red<<16) |
+          (lamp_green<<8) |
+          lamp_blue;
+      }
+      else {
+        // only brightness
+        return
+          (mode<<24) |
+          (brightness & 0xFF);
+      }
     }
   }
   return 0;
