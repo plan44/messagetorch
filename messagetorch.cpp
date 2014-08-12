@@ -3,33 +3,33 @@
 
 // Note: total number of LEDs determines amount of RAM needed. Unfortunately, with every Spark core FW update,
 //       the amout of RAM consumed by the Spark FW itself grew and less RAM was available to the app.
-//       So while the app ran fine with 240 LEDs on early spark FW, with v0.2.2 everything above ~120
+//       So while the app ran fine with 240 LEDs on early spark FW, with current v0.2.2 everything above ~120
 //       caused the app to crash (red or magenta flash of death) due to exhausted RAM.
 //       Users disabled Cheerlights and Digitalstrom to get more RAM, but full 240 LEDs were still not
 //       possible any more.
 //
 //       Hopefully, Spark will optimize their FW over time (they plan to, see forum) to make more RAM available
-//       to apps like this one. As it seems, current v0.2.3 already has more RAM free than v0.2.2 had. Great! :-)
+//       to apps like this one.
 //
-//       Still, we have to live with tight RAM, so I tried to squeeze bits out of the code
+//       In the meantime, we have to live with very tight RAM, so I tried to squeeze bits out of the code
 //       (mainly by storing 3*5 = 15 bits for RGB linear brightness rather than 24 bits for RGB PWM duty cycle).
 //       I also added the NO_CHEERLIGHT and NO_DIGITALSTROM conditionals to facilitate leaving these extras off
 //       and save space.
 //
-//       By now, with NO_CHEERLIGHT defined to 1 (but NO_DIGITALSTROM left undefined), the MessageTorch works again with
+//       By now with NO_CHEERLIGHT defined to 1 (but NO_DIGITALSTROM left undefined), the MessageTorch works again with
 //       18*13 = 234 active LEDs on current v0.2.3 firmware.
 //
-//       If you still run into red-flash-of-death issues, try reducing the number of LEDs by making
+//       If future firmware should again reduce RAM, try reducing the number of LEDs by making
 //       levels or ledsPerLevel smaller.
 
 // Number of LEDs around the tube. One too much looks better (italic text look)
 // than one to few (backwards leaning text look)
 // Higher number = diameter of the torch gets larger
-const uint16_t ledsPerLevel = 13;
+const uint16_t ledsPerLevel = 13; // Original: 13, smaller tube 11
 
 // Number of "windings" of the LED strip around (or within) the tube
 // Higher number = torch gets taller
-const uint16_t levels = 18;
+const uint16_t levels = 18; // original 18, smaller tube 21
 
 // define this to 1 to disable Cheerlights part of the code (to save memory)
 #define NO_CHEERLIGHT 1
@@ -425,7 +425,7 @@ int text_intensity = 255; // intensity of last column of text (where text appear
 int cycles_per_px = 5;
 int text_repeats = 15; // text displays until faded down to almost zero
 int fade_per_repeat = 15; // how much to fade down per repeat
-int text_base_line = 4;
+int text_base_line = 10;
 byte red_text = 0;
 byte green_text = 255;
 byte blue_text = 180;
@@ -458,6 +458,8 @@ byte blue_bias = 0;
 int red_energy = 180;
 int green_energy = 145;
 int blue_energy = 0;
+
+byte upside_down = 0; // if set, flame (or rather: drop) animation is upside down. Text remains as-is
 
 
 // lamp mode params
@@ -501,13 +503,13 @@ int handleParams(String command)
       brightness = val;
     else if (key=="fade_base")
       fade_base = val;
-    #if !NO_CHEERLIGHT
+#if !NO_CHEERLIGHT
     // cheerlight params
     else if (key=="cheer_brightness")
       cheer_brightness = val;
     else if (key=="cheer_fade_cycles")
       cheer_fade_cycles = val;
-    #endif
+#endif
     // simple lamp params
     else if (key=="lamp_red")
       lamp_red = val;
@@ -575,6 +577,8 @@ int handleParams(String command)
       spark_min = val;
     else if (key=="spark_max")
       spark_max = val;
+    else if (key=="upside_down")
+      upside_down = val;
     p = i+1;
   }
   return 1;
@@ -638,16 +642,16 @@ int handleVdsd(String command)
       if (mode==mode_lamp) {
         // RGB Lamp
         return
-          (mode<<24) |
-          (lamp_red<<16) |
-          (lamp_green<<8) |
-          lamp_blue;
+        (mode<<24) |
+        (lamp_red<<16) |
+        (lamp_green<<8) |
+        lamp_blue;
       }
       else {
         // only brightness
         return
-          (mode<<24) |
-          (brightness & 0xFF);
+        (mode<<24) |
+        (brightness & 0xFF);
       }
     }
   }
@@ -894,11 +898,15 @@ void calcNextColors()
       leds.setColorDimmed(i, red_text, green_text, blue_text, (brightness*textLayer[i-textStart])>>8);
     }
     else {
-      uint16_t e = nextEnergy[i];
-      currentEnergy[i] = e;
-  //    leds.setColorDimmed(i, 255, 170, 0, e);
+      int ei; // index into energy calculation buffer
+      if (upside_down)
+        ei = numLeds-i;
+      else
+        ei = i;
+      uint16_t e = nextEnergy[ei];
+      currentEnergy[ei] = e;
       if (e>250)
-        leds.setColorDimmed(i, 170, 170, e, brightness);
+        leds.setColorDimmed(i, 170, 170, e, brightness); // blueish extra-bright spark
       else {
         if (e>0) {
           // energy to brightness is non-linear
@@ -1072,9 +1080,9 @@ void setup()
   // remote control
   Spark.function("params", handleParams); // parameters
   Spark.function("message", newMessage); // text message display
-  #if !NO_DIGITALSTROM
+#if !NO_DIGITALSTROM
   Spark.function("vdsd", handleVdsd); // virtual digitalstrom device interface
-  #endif
+#endif
 }
 
 
@@ -1083,11 +1091,11 @@ byte cnt = 0;
 
 void loop()
 {
-  #if !NO_CHEERLIGHT
+#if !NO_CHEERLIGHT
   // check cheerlights
   checkCheerlights();
   updateBackgroundWithCheerColor();
-  #endif
+#endif
   // render the text
   renderText();
   int textStart = text_base_line*ledsPerLevel;
