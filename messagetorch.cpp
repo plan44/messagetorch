@@ -25,11 +25,11 @@
 // Number of LEDs around the tube. One too much looks better (italic text look)
 // than one to few (backwards leaning text look)
 // Higher number = diameter of the torch gets larger
-const uint16_t ledsPerLevel = 13; // Original: 13, smaller tube 11, high density small 17
+const uint16_t ledsPerLevel = 11; // Original: 13, smaller tube 11, high density small 17
 
 // Number of "windings" of the LED strip around (or within) the tube
 // Higher number = torch gets taller
-const uint16_t levels = 18; // original 18, smaller tube 21, high density small 7
+const uint16_t levels = 21; // original 18, smaller tube 21, high density small 7
 
 // Set this to 1 if you wound the LED strip clockwise, starting at the bottom of the
 // tube, when looking onto the tube from the top. The default winding direction
@@ -783,18 +783,21 @@ void renderText()
     // now render columns
     for (int glyphRow=0; glyphRow<rowsPerGlyph; glyphRow++) {
       int i;
+      int leftstep;
       if (clockWiseWinding) {
         i = (glyphRow+1)*ledsPerLevel - 1 - x; // LED index, x-direction mirrored
+        leftstep = 1;
       }
       else {
         i = glyphRow*ledsPerLevel + x; // LED index
+        leftstep = -1;
       }
       if (glyphRow < rowsPerGlyph) {
         if (column & (0x40>>glyphRow)) {
           textLayer[i] = thisBright;
           // also adjust pixel left to this one
           if (x>0) {
-            increase(textLayer[i-1], nextBright, maxBright);
+            increase(textLayer[i+leftstep], nextBright, maxBright);
           }
           continue;
         }
