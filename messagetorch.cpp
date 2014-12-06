@@ -25,11 +25,20 @@
 // Number of LEDs around the tube. One too much looks better (italic text look)
 // than one to few (backwards leaning text look)
 // Higher number = diameter of the torch gets larger
-const uint16_t ledsPerLevel = 13; // Original: 13, smaller tube 11
+const uint16_t ledsPerLevel = 13; // Original: 13, smaller tube 11, high density small 17
 
 // Number of "windings" of the LED strip around (or within) the tube
 // Higher number = torch gets taller
-const uint16_t levels = 18; // original 18, smaller tube 21
+const uint16_t levels = 18; // original 18, smaller tube 21, high density small 7
+
+// Set this to 1 if you wound the LED strip clockwise, starting at the bottom of the
+// tube, when looking onto the tube from the top. The default winding direction
+// for versions of MessageTorch which did not have this setting was 0, which
+// means LED strip was usually wound counter clock wise from bottom to top.
+// Note: this setting only reverses the direction of text rendering - the torch
+//   animation itself is not affected
+const byte clockWiseWinding = 0;
+
 
 // define this to 1 to disable Cheerlights part of the code (to save memory)
 #define NO_CHEERLIGHT 1
@@ -503,13 +512,13 @@ int handleParams(String command)
       brightness = val;
     else if (key=="fade_base")
       fade_base = val;
-#if !NO_CHEERLIGHT
+    #if !NO_CHEERLIGHT
     // cheerlight params
     else if (key=="cheer_brightness")
       cheer_brightness = val;
     else if (key=="cheer_fade_cycles")
       cheer_fade_cycles = val;
-#endif
+    #endif
     // simple lamp params
     else if (key=="lamp_red")
       lamp_red = val;
@@ -642,16 +651,16 @@ int handleVdsd(String command)
       if (mode==mode_lamp) {
         // RGB Lamp
         return
-        (mode<<24) |
-        (lamp_red<<16) |
-        (lamp_green<<8) |
-        lamp_blue;
+          (mode<<24) |
+          (lamp_red<<16) |
+          (lamp_green<<8) |
+          lamp_blue;
       }
       else {
         // only brightness
         return
-        (mode<<24) |
-        (brightness & 0xFF);
+          (mode<<24) |
+          (brightness & 0xFF);
       }
     }
   }
@@ -773,7 +782,13 @@ void renderText()
     }
     // now render columns
     for (int glyphRow=0; glyphRow<rowsPerGlyph; glyphRow++) {
-      int i = glyphRow*ledsPerLevel + x; // LED index
+      int i;
+      if (clockWiseWinding) {
+        i = (glyphRow+1)*ledsPerLevel - 1 - x; // LED index, x-direction mirrored
+      }
+      else {
+        i = glyphRow*ledsPerLevel + x; // LED index
+      }
       if (glyphRow < rowsPerGlyph) {
         if (column & (0x40>>glyphRow)) {
           textLayer[i] = thisBright;
@@ -1080,9 +1095,9 @@ void setup()
   // remote control
   Spark.function("params", handleParams); // parameters
   Spark.function("message", newMessage); // text message display
-#if !NO_DIGITALSTROM
+  #if !NO_DIGITALSTROM
   Spark.function("vdsd", handleVdsd); // virtual digitalstrom device interface
-#endif
+  #endif
 }
 
 
@@ -1091,11 +1106,11 @@ byte cnt = 0;
 
 void loop()
 {
-#if !NO_CHEERLIGHT
+  #if !NO_CHEERLIGHT
   // check cheerlights
   checkCheerlights();
   updateBackgroundWithCheerColor();
-#endif
+  #endif
   // render the text
   renderText();
   int textStart = text_base_line*ledsPerLevel;
@@ -1148,3 +1163,4 @@ void loop()
   // wait
   delay(cycle_wait); // latch & reset needs 50 microseconds pause, at least.
 }
+
