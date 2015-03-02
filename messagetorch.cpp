@@ -1,43 +1,33 @@
 // Configuration
 // =============
 
-// Note: total number of LEDs determines amount of RAM needed. Unfortunately, with every Spark core FW update,
-//       the amout of RAM consumed by the Spark FW itself grew and less RAM was available to the app.
-//       So while the app ran fine with 240 LEDs on early spark FW, with current v0.2.2 everything above ~120
-//       caused the app to crash (red or magenta flash of death) due to exhausted RAM.
-//       Users disabled Cheerlights and Digitalstrom to get more RAM, but full 240 LEDs were still not
-//       possible any more.
-//
-//       Hopefully, Spark will optimize their FW over time (they plan to, see forum) to make more RAM available
-//       to apps like this one.
-//
-//       In the meantime, we have to live with very tight RAM, so I tried to squeeze bits out of the code
-//       (mainly by storing 3*5 = 15 bits for RGB linear brightness rather than 24 bits for RGB PWM duty cycle).
-//       I also added the NO_CHEERLIGHT and NO_DIGITALSTROM conditionals to facilitate leaving these extras off
-//       and save space.
-//
-//       By now with NO_CHEERLIGHT defined to 1 (but NO_DIGITALSTROM left undefined), the MessageTorch works again with
-//       18*13 = 234 active LEDs on current v0.2.3 firmware.
-//
-//       If future firmware should again reduce RAM, try reducing the number of LEDs by making
-//       levels or ledsPerLevel smaller.
-
 // Number of LEDs around the tube. One too much looks better (italic text look)
 // than one to few (backwards leaning text look)
 // Higher number = diameter of the torch gets larger
-const uint16_t ledsPerLevel = 11; // Original: 13, smaller tube 11, high density small 17
+const uint16_t ledsPerLevel = 13; // Original: 13, smaller tube 11, high density small 17
 
 // Number of "windings" of the LED strip around (or within) the tube
 // Higher number = torch gets taller
-const uint16_t levels = 21; // original 18, smaller tube 21, high density small 7
+const uint16_t levels = 18; // original 18, smaller tube 21, high density small 7
 
-// Set this to 1 if you wound the LED strip clockwise, starting at the bottom of the
+// set to true if you wound the torch clockwise (as seen from top). Note that
+// this reverses the entire animation (in contrast to mirrorText, which only
+// mirrors text).
+const bool reversedX = false;
+// set to true if every other row in the LED matrix is ordered backwards.
+// This mode is useful for WS2812 modules which have e.g. 16x16 LEDs on one
+// flexible PCB. On these modules, the data line starts in the lower left
+// corner, goes right for row 0, then left in row 1, right in row 2 etc.
+const bool alternatingX = false;
+
+
+// Set this to true if you wound the LED strip clockwise, starting at the bottom of the
 // tube, when looking onto the tube from the top. The default winding direction
 // for versions of MessageTorch which did not have this setting was 0, which
 // means LED strip was usually wound counter clock wise from bottom to top.
 // Note: this setting only reverses the direction of text rendering - the torch
 //   animation itself is not affected
-const byte clockWiseWinding = 0;
+const bool mirrorText = false;
 
 
 // define this to 1 to disable Cheerlights part of the code (to save memory)
@@ -72,11 +62,18 @@ class p44_ws2812 {
 
   uint16_t numLeds; // number of LEDs
   RGBPixel *pixelBufferP; // the pixel buffer
+  uint16_t ledsPerRow; // number of LEDs per row
+  bool xReversed; // even (0,2,4...) rows go backwards, or all if not alternating
+  bool alternating; // direction changes after every row
+
 
 public:
   /// create driver for a WS2812 LED chain
   /// @param aNumLeds number of LEDs in the chain
-  p44_ws2812(uint16_t aNumLeds);
+  /// @param aLedsPerRow number of LEDs in a row (x size in a X/Y arrangement of the LEDs)
+  /// @param aXReversed X direction is reversed
+  /// @param aAlternating X direction is reversed in first row, normal in second, reversed in third etc..
+  p44_ws2812(uint16_t aNumLeds, uint16_t aLedsPerRow=0, bool aXReversed=false, bool aAlternating=false);
 
   /// destructor
   ~p44_ws2812();
@@ -93,6 +90,7 @@ public:
   /// @param aRed intensity of red component, 0..255
   /// @param aGreen intensity of green component, 0..255
   /// @param aBlue intensity of blue component, 0..255
+  void setColorXY(uint16_t aX, uint16_t aY, byte aRed, byte aGreen, byte aBlue);
   void setColor(uint16_t aLedNumber, byte aRed, byte aGreen, byte aBlue);
 
   /// set color of one LED, scaled by a visible brightness (non-linear) factor
@@ -100,6 +98,7 @@ public:
   /// @param aGreen intensity of green component, 0..255
   /// @param aBlue intensity of blue component, 0..255
   /// @param aBrightness brightness, will be converted non-linear to PWM duty cycle for uniform brightness scale, 0..255
+  void setColorDimmedXY(uint16_t aX, uint16_t aY, byte aRed, byte aGreen, byte aBlue, byte aBrightness);
   void setColorDimmed(uint16_t aLedNumber, byte aRed, byte aGreen, byte aBlue, byte aBrightness);
 
   /// get current color of LED
@@ -108,10 +107,16 @@ public:
   /// @param aBlue set to intensity of blue component, 0..255
   /// @note for LEDs set with setColorDimmed(), this returns the scaled down RGB values,
   ///   not the original r,g,b parameters. Note also that internal brightness resolution is 5 bits only.
+  void getColorXY(uint16_t aX, uint16_t aY, byte &aRed, byte &aGreen, byte &aBlue);
   void getColor(uint16_t aLedNumber, byte &aRed, byte &aGreen, byte &aBlue);
 
   /// @return number of LEDs
   int getNumLeds();
+
+private:
+
+  uint16_t ledIndexFromXY(uint16_t aX, uint16_t aY);
+
 
 };
 
@@ -122,9 +127,15 @@ public:
 
 static const uint8_t pwmTable[32] = {0, 1, 1, 2, 3, 4, 6, 7, 9, 10, 13, 15, 18, 21, 24, 28, 33, 38, 44, 50, 58, 67, 77, 88, 101, 115, 132, 150, 172, 196, 224, 255};
 
-p44_ws2812::p44_ws2812(uint16_t aNumLeds)
+p44_ws2812::p44_ws2812(uint16_t aNumLeds, uint16_t aLedsPerRow, bool aXReversed, bool aAlternating)
 {
   numLeds = aNumLeds;
+  if (aLedsPerRow==0)
+    ledsPerRow = aNumLeds; // single row
+  else
+    ledsPerRow = aLedsPerRow; // set row size
+  xReversed = aXReversed;
+  alternating = aAlternating;
   // allocate the buffer
   if((pixelBufferP = new RGBPixel[numLeds])!=NULL) {
     memset(pixelBufferP, 0, sizeof(RGBPixel)*numLeds); // all LEDs off
@@ -187,10 +198,36 @@ void p44_ws2812::show()
 }
 
 
+uint16_t p44_ws2812::ledIndexFromXY(uint16_t aX, uint16_t aY)
+{
+  uint16_t ledindex = aY*ledsPerRow;
+  bool reversed = xReversed;
+  if (alternating) {
+    if (aY & 0x1) reversed = !reversed;
+  }
+  if (reversed) {
+    ledindex += (ledsPerRow-1-aX);
+  }
+  else {
+    ledindex += aX;
+  }
+  return ledindex;
+}
+
+
 void p44_ws2812::setColor(uint16_t aLedNumber, byte aRed, byte aGreen, byte aBlue)
 {
-  if (aLedNumber>=numLeds) return; // invalid LED number
-  RGBPixel *pixP = &(pixelBufferP[aLedNumber]);
+  int y = aLedNumber / ledsPerRow;
+  int x = aLedNumber % ledsPerRow;
+  setColorXY(x, y, aRed, aGreen, aBlue);
+}
+
+
+void p44_ws2812::setColorXY(uint16_t aX, uint16_t aY, byte aRed, byte aGreen, byte aBlue)
+{
+  uint16_t ledindex = ledIndexFromXY(aX,aY);
+  if (ledindex>=numLeds) return;
+  RGBPixel *pixP = &(pixelBufferP[ledindex]);
   // linear brightness is stored with 5bit precision only
   pixP->red = aRed>>3;
   pixP->green = aGreen>>3;
@@ -200,15 +237,31 @@ void p44_ws2812::setColor(uint16_t aLedNumber, byte aRed, byte aGreen, byte aBlu
 
 void p44_ws2812::setColorDimmed(uint16_t aLedNumber, byte aRed, byte aGreen, byte aBlue, byte aBrightness)
 {
-  setColor(aLedNumber, (aRed*aBrightness)>>8, (aGreen*aBrightness)>>8, (aBlue*aBrightness)>>8);
+  int y = aLedNumber / ledsPerRow;
+  int x = aLedNumber % ledsPerRow;
+  setColorDimmedXY(x, y, aRed, aGreen, aBlue, aBrightness);
 }
 
+
+void p44_ws2812::setColorDimmedXY(uint16_t aX, uint16_t aY, byte aRed, byte aGreen, byte aBlue, byte aBrightness)
+{
+  setColorXY(aX, aY, (aRed*aBrightness)>>8, (aGreen*aBrightness)>>8, (aBlue*aBrightness)>>8);
+}
 
 
 void p44_ws2812::getColor(uint16_t aLedNumber, byte &aRed, byte &aGreen, byte &aBlue)
 {
-  if (aLedNumber>=numLeds) return; // invalid LED number
-  RGBPixel *pixP = &(pixelBufferP[aLedNumber]);
+  int y = aLedNumber / ledsPerRow;
+  int x = aLedNumber % ledsPerRow;
+  getColorXY(x, y, aRed, aGreen, aBlue);
+}
+
+
+void p44_ws2812::getColorXY(uint16_t aX, uint16_t aY, byte &aRed, byte &aGreen, byte &aBlue)
+{
+  uint16_t ledindex = ledIndexFromXY(aX,aY);
+  if (ledindex>=numLeds) return;
+  RGBPixel *pixP = &(pixelBufferP[ledindex]);
   // linear brightness is stored with 5bit precision only
   aRed = pixP->red<<3;
   aGreen = pixP->green<<3;
@@ -422,7 +475,7 @@ static const glyph_t fontGlyphs[numGlyphs] = {
 
 const uint16_t numLeds = ledsPerLevel*levels; // total number of LEDs
 
-p44_ws2812 leds(numLeds); // create WS2812 driver
+p44_ws2812 leds(numLeds, ledsPerLevel, reversedX, alternatingX); // create WS2812 driver
 
 // global parameters
 
@@ -431,6 +484,7 @@ enum {
   mode_torch = 1, // torch
   mode_colorcycle = 2, // moving color cycle
   mode_lamp = 3, // lamp
+  mode_testpattern = 4, // test pattern
 };
 
 byte mode = mode_torch; // main operation mode
@@ -443,7 +497,7 @@ int text_intensity = 255; // intensity of last column of text (where text appear
 int cycles_per_px = 5;
 int text_repeats = 15; // text displays until faded down to almost zero
 int fade_per_repeat = 15; // how much to fade down per repeat
-int text_base_line = 10;
+int text_base_line = 8;
 byte red_text = 0;
 byte green_text = 255;
 byte blue_text = 180;
@@ -815,7 +869,7 @@ void renderText()
     for (int glyphRow=0; glyphRow<rowsPerGlyph; glyphRow++) {
       int i;
       int leftstep;
-      if (clockWiseWinding) {
+      if (mirrorText) {
         i = (glyphRow+1)*ledsPerLevel - 1 - x; // LED index, x-direction mirrored
         leftstep = 1;
       }
@@ -1191,10 +1245,23 @@ void loop()
       }
       break;
     }
+    case mode_testpattern: {
+      // test pattern
+      for (int i=0; i<leds.getNumLeds(); i++) {
+        int y = i / ledsPerLevel; // intensity
+        int x = i % ledsPerLevel; // color
+        byte r,g,b;
+        wheel(x*10, r, g, b);
+        leds.setColorDimmed(i, r, g, b, 60+y*9);
+      }
+      break;
+    }
   }
   // transmit colors to the leds
   leds.show();
   // wait
   delay(cycle_wait); // latch & reset needs 50 microseconds pause, at least.
 }
+
+
 
