@@ -503,6 +503,12 @@ byte green_text = 255;
 byte blue_text = 180;
 
 
+// clock parameters
+
+int clock_interval = 0; // 15*60; // by default, show clock every 15 mins (0=never)
+int clock_zone = 2; // UTC+2 = CEST = Central European Summer Time
+char clock_fmt[30] = "%k:%M"; // use format specifiers from strftime, see e.g. http://linux.die.net/man/3/strftime. %k:%M is 24h hour/minute clock
+
 // torch parameters
 
 uint16_t cycle_wait = 1; // 0..255
@@ -607,6 +613,13 @@ int handleParams(String command)
       fade_per_repeat = val;
     else if (key=="text_intensity")
       text_intensity = val;
+    // clock display params
+    else if (key=="clock_interval")
+      clock_interval = val;
+    else if (key=="clock_fmt")
+      value.toCharArray(clock_fmt, 30);
+    else if (key=="clock_zone")
+      clock_zone = val;
     // torch color params
     else if (key=="red_bg")
       red_bg = val;
@@ -1199,6 +1212,21 @@ void loop()
   checkCheerlights();
   updateBackgroundWithCheerColor();
   #endif
+  // check clock display
+  if (clock_interval>0) {
+    time_t now = Time.now(); // UTC
+    now += clock_zone*3600; // add seconds east (=ahead) of UTC
+    struct tm *loc;
+    loc = localtime(&now);
+    int secOfHour = loc->tm_min*60 + loc->tm_sec;
+    if (secOfHour % clock_interval == 0) {
+       // seconds of hour evenly dividable by clock_interval -> display time now
+       char timeString[30];
+       strftime(timeString, 30, clock_fmt, loc);
+       newMessage(timeString);
+    }
+  }
+
   // render the text
   renderText();
   int textStart = text_base_line*ledsPerLevel;
@@ -1262,6 +1290,3 @@ void loop()
   // wait
   delay(cycle_wait); // latch & reset needs 50 microseconds pause, at least.
 }
-
-
-
