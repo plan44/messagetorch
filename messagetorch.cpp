@@ -19,6 +19,9 @@ const bool reversedX = false;
 // flexible PCB. On these modules, the data line starts in the lower left
 // corner, goes right for row 0, then left in row 1, right in row 2 etc.
 const bool alternatingX = false;
+// set to true if your WS2812 chain runs up (or up/down, with alternatingX set) the "torch",
+// for example if you want to do a wide display out of multiple 16x16 arrays
+const bool swapXY = false;
 
 
 // Set this to true if you wound the LED strip clockwise, starting at the bottom of the
@@ -43,7 +46,7 @@ const bool mirrorText = false;
  * Future plan is to use DMA to feed the SPI, so WS2812 bitstream
  * can be produced without CPU load and without blocking IRQs
  *
- * (c) 2014 by luz@plan44.ch (GPG: 1CC60B3A)
+ * (c) 2014-2015 by luz@plan44.ch (GPG: 1CC60B3A)
  * Licensed as open source under the terms of the MIT License
  * (see LICENSE.TXT)
  */
@@ -62,18 +65,21 @@ class p44_ws2812 {
 
   uint16_t numLeds; // number of LEDs
   RGBPixel *pixelBufferP; // the pixel buffer
-  uint16_t ledsPerRow; // number of LEDs per row
+  uint16_t ledsPerRow; // number of LEDs per row (physically, along WS2812 chain)
+  uint16_t numRows; // number of rows (sections of WS2812 chain)
   bool xReversed; // even (0,2,4...) rows go backwards, or all if not alternating
   bool alternating; // direction changes after every row
+  bool swapXY; // x and y swapped
 
 
 public:
   /// create driver for a WS2812 LED chain
   /// @param aNumLeds number of LEDs in the chain
-  /// @param aLedsPerRow number of LEDs in a row (x size in a X/Y arrangement of the LEDs)
+  /// @param aLedsPerRow number of consecutive LEDs in the WS2812 chain that build a row (usually x direction, y if swapXY was set)
   /// @param aXReversed X direction is reversed
   /// @param aAlternating X direction is reversed in first row, normal in second, reversed in third etc..
-  p44_ws2812(uint16_t aNumLeds, uint16_t aLedsPerRow=0, bool aXReversed=false, bool aAlternating=false);
+  /// @param aSwapXY X and Y reversed (for up/down wiring)
+  p44_ws2812(uint16_t aNumLeds, uint16_t aLedsPerRow=0, bool aXReversed=false, bool aAlternating=false, bool aSwapXY=false);
 
   /// destructor
   ~p44_ws2812();
@@ -85,6 +91,7 @@ public:
   /// @note this must be called to update the actual LEDs after modifying RGB values
   /// with setColor() and/or setColorDimmed()
   void show();
+
 
   /// set color of one LED
   /// @param aRed intensity of red component, 0..255
@@ -113,6 +120,12 @@ public:
   /// @return number of LEDs
   int getNumLeds();
 
+  /// @return size of array in X direction (x range is 0..getSizeX()-1)
+  uint16_t getSizeX();
+
+  /// @return size of array in Y direction (y range is 0..getSizeY()-1)
+  uint16_t getSizeY();
+
 private:
 
   uint16_t ledIndexFromXY(uint16_t aX, uint16_t aY);
@@ -127,15 +140,20 @@ private:
 
 static const uint8_t pwmTable[32] = {0, 1, 1, 2, 3, 4, 6, 7, 9, 10, 13, 15, 18, 21, 24, 28, 33, 38, 44, 50, 58, 67, 77, 88, 101, 115, 132, 150, 172, 196, 224, 255};
 
-p44_ws2812::p44_ws2812(uint16_t aNumLeds, uint16_t aLedsPerRow, bool aXReversed, bool aAlternating)
+p44_ws2812::p44_ws2812(uint16_t aNumLeds, uint16_t aLedsPerRow, bool aXReversed, bool aAlternating, bool aSwapXY)
 {
   numLeds = aNumLeds;
-  if (aLedsPerRow==0)
+  if (aLedsPerRow==0) {
     ledsPerRow = aNumLeds; // single row
-  else
+    numRows = 1;
+  }
+  else {
     ledsPerRow = aLedsPerRow; // set row size
+    numRows = (numLeds-1)/ledsPerRow+1; // calculate number of (full or partial) rows
+  }
   xReversed = aXReversed;
   alternating = aAlternating;
+  swapXY = aSwapXY;
   // allocate the buffer
   if((pixelBufferP = new RGBPixel[numLeds])!=NULL) {
     memset(pixelBufferP, 0, sizeof(RGBPixel)*numLeds); // all LEDs off
@@ -153,6 +171,19 @@ int p44_ws2812::getNumLeds()
 {
   return numLeds;
 }
+
+
+uint16_t p44_ws2812::getSizeX()
+{
+  return swapXY ? numRows : ledsPerRow;
+}
+
+
+uint16_t p44_ws2812::getSizeY()
+{
+  return swapXY ? ledsPerRow : numRows;
+}
+
 
 
 void p44_ws2812::begin()
@@ -200,6 +231,7 @@ void p44_ws2812::show()
 
 uint16_t p44_ws2812::ledIndexFromXY(uint16_t aX, uint16_t aY)
 {
+  if (swapXY) { uint16_t tmp=aY; aY=aX; aX=tmp; }
   uint16_t ledindex = aY*ledsPerRow;
   bool reversed = xReversed;
   if (alternating) {
@@ -217,8 +249,8 @@ uint16_t p44_ws2812::ledIndexFromXY(uint16_t aX, uint16_t aY)
 
 void p44_ws2812::setColor(uint16_t aLedNumber, byte aRed, byte aGreen, byte aBlue)
 {
-  int y = aLedNumber / ledsPerRow;
-  int x = aLedNumber % ledsPerRow;
+  int y = aLedNumber / getSizeX();
+  int x = aLedNumber % getSizeX();
   setColorXY(x, y, aRed, aGreen, aBlue);
 }
 
@@ -237,8 +269,8 @@ void p44_ws2812::setColorXY(uint16_t aX, uint16_t aY, byte aRed, byte aGreen, by
 
 void p44_ws2812::setColorDimmed(uint16_t aLedNumber, byte aRed, byte aGreen, byte aBlue, byte aBrightness)
 {
-  int y = aLedNumber / ledsPerRow;
-  int x = aLedNumber % ledsPerRow;
+  int y = aLedNumber / getSizeX();
+  int x = aLedNumber % getSizeX();
   setColorDimmedXY(x, y, aRed, aGreen, aBlue, aBrightness);
 }
 
@@ -251,8 +283,8 @@ void p44_ws2812::setColorDimmedXY(uint16_t aX, uint16_t aY, byte aRed, byte aGre
 
 void p44_ws2812::getColor(uint16_t aLedNumber, byte &aRed, byte &aGreen, byte &aBlue)
 {
-  int y = aLedNumber / ledsPerRow;
-  int x = aLedNumber % ledsPerRow;
+  int y = aLedNumber / getSizeX();
+  int x = aLedNumber % getSizeX();
   getColorXY(x, y, aRed, aGreen, aBlue);
 }
 
@@ -475,7 +507,7 @@ static const glyph_t fontGlyphs[numGlyphs] = {
 
 const uint16_t numLeds = ledsPerLevel*levels; // total number of LEDs
 
-p44_ws2812 leds(numLeds, ledsPerLevel, reversedX, alternatingX); // create WS2812 driver
+p44_ws2812 leds(numLeds, swapXY ? levels : ledsPerLevel, reversedX, alternatingX, swapXY); // create WS2812 driver
 
 // global parameters
 
