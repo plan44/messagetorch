@@ -1,15 +1,13 @@
 MessageTorch
 ============
 
-2014-06-04: Optimized to work again with 18*13 LEDs even with reduced RAM available on newer spark FW (v0.2.2)!
-
 [![Flattr this git repo](http://api.flattr.com/button/flattr-badge-large.png)](https://flattr.com/submit/auto?user_id=luz&url=https://github.com/plan44/messagetorch&title=MessageTorch&language=&tags=github&category=software)
 
-**A small fun project using a WS2812 color LED strip and a spark.io core WiFi+Cloud enabled prototyping board.**
+**A small fun project using a WS2812 color LED strip and a particle.io (formerly: spark.io) WiFi+Cloud enabled prototyping board.**
 
 ![Hello Spark](MessageTorch.gif)
 
-End of last year, at the incredibly great [30C3 chaos communication congress](http://media.ccc.de/browse/congress/2013/) in Hamburg, I learnt of the existence of WS2812 LED chips. Shame on me I wasn't aware of them before. These are RGB LEDs with a built-in controller which allows chaining hundreds of them and controlling each LED individually via a single output pin of a microcontroller, at a speed suitable for complex animations.
+End of 2013, at the incredibly great [30C3 chaos communication congress](http://media.ccc.de/browse/congress/2013/) in Hamburg, I learnt of the existence of WS2812 LED chips. Shame on me I wasn't aware of them before. These are RGB LEDs with a built-in controller which allows chaining hundreds of them and controlling each LED individually via a single output pin of a microcontroller, at a speed suitable for complex animations.
 
 At 30C3, there were many many WS2812 based and very colorful light installations, but the one that fascinated me most was a rather small and nearly monochrome one. It was a LED strip with some 200 WS2812, wound onto a tube of approximately 7cm diameter and maybe 70cm height. The tube stood vertically on a desk and showed an animation that made the tube look like a torch on fire. The fascinating thing was that it really created a feeling of fire, despite the very limited resolution (after all, it had only 200 "pixels" around the tube, so what you could see at once were probably less 100 LEDs). But the effect was really stunning.
 
@@ -17,7 +15,7 @@ Luckily, the creator of the torch was explaining how the did the calculations fo
 
 I would very much like to give him credit for this awesome idea - if I only knew his name. I tried to find out afterwards but without success so far (hints welcome, if anyone saw it too and knows who is the creator, please let me know).
 
-Anyway, back at home I ordered some WS2812 led strips ([4m ones with 240 chips each](http://www.aliexpress.com/item/4M-240-chips-5050-RGB-SMD-60-Pixels-M-WS2811-IC-WS2812B-WS2812-Digital-Strip-2812/1587858490.html)). And nearly the same day the strips were delivered, the Kickstarter reward from the awesome [spark.io "spark core" project](https://www.spark.io) also arrived.
+Anyway, back at home I ordered some WS2812 led strips ([4m ones with 240 chips each](http://www.aliexpress.com/item/4M-240-chips-5050-RGB-SMD-60-Pixels-M-WS2811-IC-WS2812B-WS2812-Digital-Strip-2812/1587858490.html)). And nearly the same day the strips were delivered, the Kickstarter reward from the awesome [spark.io "spark core" (now: particle.io) project](https://particle.io) also arrived.
 
 So the formula was: Idea from Blinkenlights@30c3 + spark.core + WS2812 strip -> do something with that!
 
@@ -48,14 +46,14 @@ The MessageTorch is standing near our coffee table in the office, so I hacked a 
 
 For your own spark cores, of which you have the device ID and access token, the message can be sent directly:
 
-curl https://api.spark.io/v1/devices/xxxxxxx/message -d access_token=tttt -d "args=Hello Spark"
+curl https://api.spark.io/v1/devices/xxxxxxx/message -d access_token=tttt -d "args=Hello Particle"
 
 
 Parameters
 ----------
 The development cycle on the spark core via the web IDE is rather slow, as every update apparently re-flashes not only the user code, but the entire firmware. So to play with the animations, colors etc. I added a lot of parameters that can be set via the cloud API:
 
-curl https://api.spark.io/v1/devices/xxxxxxx/params -d access_token=tttt -d "args=mode=2,brightness=255"
+curl https://api.particle.io/v1/devices/xxxxxxx/params -d access_token=tttt -d "args=mode=2,brightness=255"
 
 To see what parameters are supported, check out the handleParams() function around line 465 of the code.
 
@@ -69,8 +67,8 @@ So of course I also wanted the MessageTorch to be part of that, and that's what 
 
 Adapting to your LED chain and tube diameter
 --------------------------------------------
-There are two constants in the source ~~around line 365~~ at the very top of the file, "ledsPerLevel" and "levels". "ledsPerLevel" must be set to the number of LEDs in one winding of the LED chain around (or in my case, inside the plexiglass) tube. "levels" must be the number of windings. Of course "ledsPerLevel" times "levels" must not exceed the total number of LEDs in the chain.
-(Also, see comments at the top of the file regarding tight memory conditions on newer Spark Core firmware versions)
+There are some constants in the source at the very top of the file to adapt the code to your particular torch setup. Primarily, "ledsPerLevel" must be set to the number of LEDs in one winding of the LED chain around (or in my case, inside the plexiglass) tube. "levels" must be the number of windings. Of course "ledsPerLevel" times "levels" must not exceed the total number of LEDs in the chain.
+Read the comments for the other variables, which allow counterclock winding, zig-zag-wiring (e.g. for flat 16x16 WS2812 "cloths") and more.
  
 
 
