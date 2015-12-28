@@ -13,11 +13,11 @@ At 30C3, there were many many WS2812 based and very colorful light installations
 
 Luckily, the creator of the torch was explaining how the did the calculations for the animation just the moment I passed by. Not in great detail, but I got the basic idea which later, back at home, transformed to my version - the "MessageTorch".
 
-I would very much like to give him credit for this awesome idea - if I only knew his name. I tried to find out afterwards but without success so far (hints welcome, if anyone saw it too and knows who is the creator, please let me know).
+~~I would very much like to give him credit for this awesome idea - if I only knew his name. I tried to find out afterwards but without success so far (hints welcome, if anyone saw it too and knows who is the creator, please let me know)~~. No longer - today (Dec 28th, 2015), at 32C3, I saw the original torch again, and its creator was sitting at the same table! __So: thanks a lot for the inspiration, Simon at gimp dot org!__
 
 Anyway, back at home I ordered some WS2812 led strips ([4m ones with 240 chips each](http://www.aliexpress.com/item/4M-240-chips-5050-RGB-SMD-60-Pixels-M-WS2811-IC-WS2812B-WS2812-Digital-Strip-2812/1587858490.html)). And nearly the same day the strips were delivered, the Kickstarter reward from the awesome [spark.io "spark core" (now: particle.io) project](https://particle.io) also arrived.
 
-So the formula was: Idea from Blinkenlights@30c3 + spark.core + WS2812 strip -> do something with that!
+So the formula was: Idea from Simon @ 30c3 + spark.core + WS2812 strip -> do something with that!
 
 Driving WS2812 chains
 ---------------------
