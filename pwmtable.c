@@ -4,12 +4,12 @@
 #include <math.h>
 
 int main() {
-  const int brightMax = 31;
+  const int brightMax = 255;
   const float logSkal = 4;      // exponent: 1 = lin, 2 = quadratic, 3 = cubic, ...  (float)
   const int pwmMin = 0;
   const int pwmMax = 255;
-  const int pwmStep = 8; // resolution for reverse table (PWM unit step size)
-  const int brightScale = 8; // upscaling for brightness output in reverse table
+  const int pwmStep = 1; // resolution for reverse table (PWM unit step size)
+  const int brightScale = 1; // upscaling for brightness output in reverse table
   int pwmForBrightness[brightMax+1];
 
   // calculate pwm value (0..255): exponential scale of bright
