@@ -4,16 +4,20 @@
 // Number of LEDs around the tube. One too much looks better (italic text look)
 // than one to few (backwards leaning text look)
 // Higher number = diameter of the torch gets larger
-const uint16_t ledsPerLevel = 13; // Original: 13, smaller tube 11, high density small 17
+const uint16_t ledsPerLevel = 11; // Original: 13, smaller tube 11, high density small 17
 
 // Number of "windings" of the LED strip around (or within) the tube
 // Higher number = torch gets taller
-const uint16_t levels = 18; // original 18, smaller tube 21, high density small 7
+const uint16_t levels = 21; // original 18, smaller tube 21, high density small 7
 
 // set to true if you wound the torch clockwise (as seen from top). Note that
 // this reverses the entire animation (in contrast to mirrorText, which only
 // mirrors text).
 const bool reversedX = false;
+
+// set to true if you wound the torch from top down
+const bool reversedY = false;
+
 // set to true if every other row in the LED matrix is ordered backwards.
 // This mode is useful for WS2812 modules which have e.g. 16x16 LEDs on one
 // flexible PCB. On these modules, the data line starts in the lower left
@@ -24,6 +28,8 @@ const bool alternatingX = false;
 const bool swapXY = false;
 
 
+
+
 // Set this to true if you wound the LED strip clockwise, starting at the bottom of the
 // tube, when looking onto the tube from the top. The default winding direction
 // for versions of MessageTorch which did not have this setting was 0, which
@@ -31,6 +37,11 @@ const bool swapXY = false;
 // Note: this setting only reverses the direction of text rendering - the torch
 //   animation itself is not affected
 const bool mirrorText = false;
+
+// Set this to the LED type in use.
+// - ws2811_brg is WS2811 driver chip wired to LEDs in B,R,G order
+// - ws2812 is WS2812 LED chip in standard order for this chip: G,R,B
+#define LED_TYPE p44_ws2812::ws2812
 
 
 // define this to 1 to disable Cheerlights part of the code (to save memory)
@@ -46,7 +57,7 @@ const bool mirrorText = false;
  * Future plan is to use DMA to feed the SPI, so WS2812 bitstream
  * can be produced without CPU load and without blocking IRQs
  *
- * (c) 2014-2015 by luz@plan44.ch (GPG: 1CC60B3A)
+ * (c) 2014-2018 by luz@plan44.ch (GPG: 1CC60B3A)
  * Licensed as open source under the terms of the MIT License
  * (see LICENSE.TXT)
  */
@@ -57,29 +68,42 @@ const bool mirrorText = false;
 
 class p44_ws2812 {
 
+public:
+  typedef enum {
+    ws2811_brg,
+    ws2812
+  } LedType;
+
+private:
   typedef struct {
     unsigned int red:5;
     unsigned int green:5;
     unsigned int blue:5;
   } __attribute((packed)) RGBPixel;
 
+  LedType ledType; // the LED type
   uint16_t numLeds; // number of LEDs
+  uint16_t ledsPerPixel; // number of LEDs per pixel
+  uint16_t numPixels; // number of pixels
   RGBPixel *pixelBufferP; // the pixel buffer
-  uint16_t ledsPerRow; // number of LEDs per row (physically, along WS2812 chain)
-  uint16_t numRows; // number of rows (sections of WS2812 chain)
+  uint16_t pixelsPerRow; // number of pixels per row
+  uint16_t numRows; // number of rows
   bool xReversed; // even (0,2,4...) rows go backwards, or all if not alternating
+  bool yReversed; // Y reversed
   bool alternating; // direction changes after every row
-  bool swapXY; // x and y swapped
-
+  bool swapXY; // swap X and Y
 
 public:
   /// create driver for a WS2812 LED chain
-  /// @param aNumLeds number of LEDs in the chain
-  /// @param aLedsPerRow number of consecutive LEDs in the WS2812 chain that build a row (usually x direction, y if swapXY was set)
+  /// @param aLedType type of LEDs
+  /// @param aNumLeds number of physical LEDs in the chain (not necessarily pixels, when aLedsPerPixel>1)
+  /// @param aPixelsPerRow number of consecutive LEDs in the WS2812 chain that build a row (usually x direction, y if swapXY was set)
   /// @param aXReversed X direction is reversed
   /// @param aAlternating X direction is reversed in first row, normal in second, reversed in third etc..
   /// @param aSwapXY X and Y reversed (for up/down wiring)
-  p44_ws2812(uint16_t aNumLeds, uint16_t aLedsPerRow=0, bool aXReversed=false, bool aAlternating=false, bool aSwapXY=false);
+  /// @param aYReversed Y direction is reversed
+  /// @param aLedsPerPixel number of consecutive LEDS to be treated as a single pixel
+  p44_ws2812(LedType aLedType, uint16_t aNumLeds, uint16_t aPixelsPerRow=0, bool aXReversed=false, bool aAlternating=false, bool aSwapXY=false, bool aYReversed=false, uint16_t aLedsPerPixel=1);
 
   /// destructor
   ~p44_ws2812();
@@ -91,7 +115,6 @@ public:
   /// @note this must be called to update the actual LEDs after modifying RGB values
   /// with setColor() and/or setColorDimmed()
   void show();
-
 
   /// set color of one LED
   /// @param aRed intensity of red component, 0..255
@@ -117,13 +140,11 @@ public:
   void getColorXY(uint16_t aX, uint16_t aY, byte &aRed, byte &aGreen, byte &aBlue);
   void getColor(uint16_t aLedNumber, byte &aRed, byte &aGreen, byte &aBlue);
 
-  /// @return number of LEDs
-  int getNumLeds();
-
-  /// @return size of array in X direction (x range is 0..getSizeX()-1)
+  /// @return number of pixels
+  int getNumPixels();
+  /// @return number of Pixels in X direction
   uint16_t getSizeX();
-
-  /// @return size of array in Y direction (y range is 0..getSizeY()-1)
+  /// @return number of Pixels in Y direction
   uint16_t getSizeY();
 
 private:
@@ -140,23 +161,28 @@ private:
 
 static const uint8_t pwmTable[32] = {0, 1, 1, 2, 3, 4, 6, 7, 9, 10, 13, 15, 18, 21, 24, 28, 33, 38, 44, 50, 58, 67, 77, 88, 101, 115, 132, 150, 172, 196, 224, 255};
 
-p44_ws2812::p44_ws2812(uint16_t aNumLeds, uint16_t aLedsPerRow, bool aXReversed, bool aAlternating, bool aSwapXY)
+p44_ws2812::p44_ws2812(LedType aLedType, uint16_t aNumLeds, uint16_t aPixelsPerRow, bool aXReversed, bool aAlternating, bool aSwapXY, bool aYReversed, uint16_t aLedsPerPixel)
 {
-  numLeds = aNumLeds;
-  if (aLedsPerRow==0) {
-    ledsPerRow = aNumLeds; // single row
+  numLeds = aNumLeds; // raw number of LEDs
+  ledsPerPixel = aLedsPerPixel;
+  if (ledsPerPixel<1) ledsPerPixel=1;
+  numPixels = numLeds/ledsPerPixel;
+  ledType = aLedType;
+  if (aPixelsPerRow==0) {
+    pixelsPerRow = numPixels; // single row
     numRows = 1;
   }
   else {
-    ledsPerRow = aLedsPerRow; // set row size
-    numRows = (numLeds-1)/ledsPerRow+1; // calculate number of (full or partial) rows
+    pixelsPerRow = aPixelsPerRow; // set row size
+    numRows = (numPixels-1)/pixelsPerRow+1; // calculate number of (full or partial) rows
   }
   xReversed = aXReversed;
   alternating = aAlternating;
   swapXY = aSwapXY;
+  yReversed = aYReversed;
   // allocate the buffer
-  if((pixelBufferP = new RGBPixel[numLeds])!=NULL) {
-    memset(pixelBufferP, 0, sizeof(RGBPixel)*numLeds); // all LEDs off
+  if((pixelBufferP = new RGBPixel[numPixels])!=NULL) {
+    memset(pixelBufferP, 0, sizeof(RGBPixel)*numPixels); // all LEDs off
   }
 }
 
@@ -167,22 +193,23 @@ p44_ws2812::~p44_ws2812()
 }
 
 
-int p44_ws2812::getNumLeds()
+int p44_ws2812::getNumPixels()
 {
-  return numLeds;
+  return numPixels;
 }
 
 
 uint16_t p44_ws2812::getSizeX()
 {
-  return swapXY ? numRows : ledsPerRow;
+  return swapXY ? numRows : pixelsPerRow;
 }
 
 
 uint16_t p44_ws2812::getSizeY()
 {
-  return swapXY ? ledsPerRow : numRows;
+  return swapXY ? pixelsPerRow : numRows;
 }
+
 
 
 
@@ -190,7 +217,14 @@ void p44_ws2812::begin()
 {
   // begin using the driver
   SPI.begin();
-  SPI.setClockDivider(SPI_CLOCK_DIV8); // System clock is 72MHz, we need 9MHz for SPI
+  switch (ledType) {
+    case ws2811_brg:
+      SPI.setClockDivider(SPI_CLOCK_DIV16); // WS2811: System clock is 72MHz, we need 4.5MHz for SPI
+      break;
+    case ws2812:
+      SPI.setClockDivider(SPI_CLOCK_DIV8); // WS2812: System clock is 72MHz, we need 9MHz for SPI
+      break;
+  }
   SPI.setBitOrder(MSBFIRST); // MSB first for easier scope reading :-)
   SPI.transfer(0); // make sure SPI line starts low (Note: SPI line remains at level of last sent bit, fortunately)
 }
@@ -201,49 +235,96 @@ void p44_ws2812::show()
   // causing WS2812 chips to reset in midst of data stream.
   // Thus, until we can send via DMA, we need to disable IRQs while sending
   __disable_irq();
-  // transfer RGB values to LED chain
-  for (uint16_t i=0; i<numLeds; i++) {
-    RGBPixel *pixP = &(pixelBufferP[i]);
-    byte b;
-    // Order of PWM data for WS2812 LEDs is G-R-B
-    // - green
-    b = pwmTable[pixP->green];
-    for (byte j=0; j<8; j++) {
-      SPI.transfer(b & 0x80 ? 0x7E : 0x70);
-      b = b << 1;
+  switch(ledType) {
+    case ws2811_brg: {
+      // transfer RGB values to LED chain
+      for (uint16_t i=0; i<numPixels; i++) {
+        RGBPixel *pixP = &(pixelBufferP[i]);
+        byte b;
+        for (uint16_t r=0; r<ledsPerPixel; r++) {
+          // Order of PWM data for WS2811 LEDs usually is BRG
+          // - blue
+          b = pwmTable[pixP->blue];
+          for (byte j=0; j<8; j++) {
+            SPI.transfer(b & 0x80 ? 0x7C : 0x40);
+            b = b << 1;
+          }
+          // - red
+          b = pwmTable[pixP->red];
+          for (byte j=0; j<8; j++) {
+            SPI.transfer(b & 0x80 ? 0x7C : 0x40);
+            b = b << 1;
+          }
+          // - green
+          b = pwmTable[pixP->green];
+          for (byte j=0; j<8; j++) {
+            SPI.transfer(b & 0x80 ? 0x7C : 0x40);
+            b = b << 1;
+          }
+        }
+      }
     }
-    // - red
-    b = pwmTable[pixP->red];
-    for (byte j=0; j<8; j++) {
-      SPI.transfer(b & 0x80 ? 0x7E : 0x70);
-      b = b << 1;
+    case ws2812: {
+      // transfer RGB values to LED chain
+      for (uint16_t i=0; i<numPixels; i++) {
+        RGBPixel *pixP = &(pixelBufferP[i]);
+        byte b;
+        for (uint16_t r=0; r<ledsPerPixel; r++) {
+          // Order of PWM data for WS2812 LEDs is G-R-B
+          // - green
+          b = pwmTable[pixP->green];
+          for (byte j=0; j<8; j++) {
+            SPI.transfer(b & 0x80 ? 0x7E : 0x70);
+            b = b << 1;
+          }
+          // - red
+          b = pwmTable[pixP->red];
+          for (byte j=0; j<8; j++) {
+            SPI.transfer(b & 0x80 ? 0x7E : 0x70);
+            b = b << 1;
+          }
+          // - blue
+          b = pwmTable[pixP->blue];
+          for (byte j=0; j<8; j++) {
+            SPI.transfer(b & 0x80 ? 0x7E : 0x70);
+            b = b << 1;
+          }
+        }
+      }
     }
-    // - blue
-    b = pwmTable[pixP->blue];
-    for (byte j=0; j<8; j++) {
-      SPI.transfer(b & 0x80 ? 0x7E : 0x70);
-      b = b << 1;
-    }
-  }
+  } // switch
   __enable_irq();
 }
 
 
 uint16_t p44_ws2812::ledIndexFromXY(uint16_t aX, uint16_t aY)
 {
-  if (swapXY) { uint16_t tmp=aY; aY=aX; aX=tmp; }
-  uint16_t ledindex = aY*ledsPerRow;
+  if (swapXY) { uint16_t tmp = aY; aY = aX; aX = tmp; }
+  if (yReversed) { aY = numRows-1-aY; }
+  uint16_t ledindex = aY*pixelsPerRow;
   bool reversed = xReversed;
   if (alternating) {
     if (aY & 0x1) reversed = !reversed;
   }
   if (reversed) {
-    ledindex += (ledsPerRow-1-aX);
+    ledindex += (pixelsPerRow-1-aX);
   }
   else {
     ledindex += aX;
   }
   return ledindex;
+}
+
+
+void p44_ws2812::setColorXY(uint16_t aX, uint16_t aY, byte aRed, byte aGreen, byte aBlue)
+{
+  uint16_t ledindex = ledIndexFromXY(aX,aY);
+  if (ledindex>=numPixels) return;
+  RGBPixel *pixP = &(pixelBufferP[ledindex]);
+  // linear brightness is stored with 5bit precision only
+  pixP->red = aRed>>3;
+  pixP->green = aGreen>>3;
+  pixP->blue = aBlue>>3;
 }
 
 
@@ -255,15 +336,9 @@ void p44_ws2812::setColor(uint16_t aLedNumber, byte aRed, byte aGreen, byte aBlu
 }
 
 
-void p44_ws2812::setColorXY(uint16_t aX, uint16_t aY, byte aRed, byte aGreen, byte aBlue)
+void p44_ws2812::setColorDimmedXY(uint16_t aX, uint16_t aY, byte aRed, byte aGreen, byte aBlue, byte aBrightness)
 {
-  uint16_t ledindex = ledIndexFromXY(aX,aY);
-  if (ledindex>=numLeds) return;
-  RGBPixel *pixP = &(pixelBufferP[ledindex]);
-  // linear brightness is stored with 5bit precision only
-  pixP->red = aRed>>3;
-  pixP->green = aGreen>>3;
-  pixP->blue = aBlue>>3;
+  setColorXY(aX, aY, (aRed*aBrightness)>>8, (aGreen*aBrightness)>>8, (aBlue*aBrightness)>>8);
 }
 
 
@@ -272,12 +347,6 @@ void p44_ws2812::setColorDimmed(uint16_t aLedNumber, byte aRed, byte aGreen, byt
   int y = aLedNumber / getSizeX();
   int x = aLedNumber % getSizeX();
   setColorDimmedXY(x, y, aRed, aGreen, aBlue, aBrightness);
-}
-
-
-void p44_ws2812::setColorDimmedXY(uint16_t aX, uint16_t aY, byte aRed, byte aGreen, byte aBlue, byte aBrightness)
-{
-  setColorXY(aX, aY, (aRed*aBrightness)>>8, (aGreen*aBrightness)>>8, (aBlue*aBrightness)>>8);
 }
 
 
@@ -292,7 +361,7 @@ void p44_ws2812::getColor(uint16_t aLedNumber, byte &aRed, byte &aGreen, byte &a
 void p44_ws2812::getColorXY(uint16_t aX, uint16_t aY, byte &aRed, byte &aGreen, byte &aBlue)
 {
   uint16_t ledindex = ledIndexFromXY(aX,aY);
-  if (ledindex>=numLeds) return;
+  if (ledindex>=numPixels) return;
   RGBPixel *pixP = &(pixelBufferP[ledindex]);
   // linear brightness is stored with 5bit precision only
   aRed = pixP->red<<3;
@@ -304,6 +373,13 @@ void p44_ws2812::getColorXY(uint16_t aX, uint16_t aY, byte &aRed, byte &aGreen, 
 
 // Utilities
 // =========
+
+
+typedef struct {
+  uint8_t r;
+  uint8_t g;
+  uint8_t b;
+} RGBColor;
 
 
 uint16_t random(uint16_t aMinOrMax, uint16_t aMax = 0)
@@ -370,6 +446,29 @@ int hexToInt(char aHex)
 }
 
 
+void webColorToRGB(String aWebColor, RGBColor &aColor)
+{
+  int cc;
+  int i=0;
+  if (aWebColor.length()==6) {
+    // RRGGBB
+    cc = hexToInt(aWebColor[i++]);
+    aColor.r = (cc<<4) + hexToInt(aWebColor[i++]);
+    cc = hexToInt(aWebColor[i++]);
+    aColor.g = (cc<<4) + hexToInt(aWebColor[i++]);
+    cc = hexToInt(aWebColor[i++]);
+    aColor.b = (cc<<4) + hexToInt(aWebColor[i++]);
+  }
+  else if (aWebColor.length()==3) {
+    // RGB
+    cc = hexToInt(aWebColor[i++]);
+    aColor.r = (cc<<4) + cc;
+    cc = hexToInt(aWebColor[i++]);
+    aColor.g = (cc<<4) + cc;
+    cc = hexToInt(aWebColor[i++]);
+    aColor.b = (cc<<4) + cc;
+  }
+}
 
 
 // Simple 7 pixel height dot matrix font
@@ -507,7 +606,7 @@ static const glyph_t fontGlyphs[numGlyphs] = {
 
 const uint16_t numLeds = ledsPerLevel*levels; // total number of LEDs
 
-p44_ws2812 leds(numLeds, swapXY ? levels : ledsPerLevel, reversedX, alternatingX, swapXY); // create WS2812 driver
+p44_ws2812 leds(LED_TYPE, numLeds, swapXY ? levels : ledsPerLevel, reversedX, alternatingX, swapXY, reversedY, 1); // create WS281x driver
 
 // global parameters
 
@@ -1220,6 +1319,9 @@ void checkCheerlights()
 // Main program
 // ============
 
+// Note: in system mode manual, there is no connectivity, and device must be programmed via USB
+// SYSTEM_MODE(MANUAL);
+
 void setup()
 {
   resetEnergy();
@@ -1266,14 +1368,14 @@ void loop()
   switch (mode) {
     case mode_off: {
       // off
-      for(int i=0; i<leds.getNumLeds(); i++) {
+      for(int i=0; i<leds.getNumPixels(); i++) {
         leds.setColor(i, 0, 0, 0);
       }
       break;
     }
     case mode_lamp: {
       // just single color lamp + text display
-      for (int i=0; i<leds.getNumLeds(); i++) {
+      for (int i=0; i<leds.getNumPixels(); i++) {
         if (i>=textStart && i<textEnd && textLayer[i-textStart]>0) {
           leds.setColorDimmed(i, red_text, green_text, blue_text, (textLayer[i-textStart]*brightness)>>8);
         }
@@ -1294,8 +1396,8 @@ void loop()
       // simple color wheel animation
       cnt++;
       byte r,g,b;
-      for(int i=0; i<leds.getNumLeds(); i++) {
-        wheel(((i * 256 / leds.getNumLeds()) + cnt) & 255, r, g, b);
+      for(int i=0; i<leds.getNumPixels(); i++) {
+        wheel(((i * 256 / leds.getNumPixels()) + cnt) & 255, r, g, b);
         if (i>=textStart && i<textEnd && textLayer[i-textStart]>0) {
           leds.setColorDimmed(i, r, g, b, (textLayer[i-textStart]*brightness)>>8);
         }
@@ -1307,7 +1409,7 @@ void loop()
     }
     case mode_testpattern: {
       // test pattern
-      for (int i=0; i<leds.getNumLeds(); i++) {
+      for (int i=0; i<leds.getNumPixels(); i++) {
         int y = i / ledsPerLevel; // intensity
         int x = i % ledsPerLevel; // color
         byte r,g,b;
